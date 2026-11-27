@@ -18,6 +18,8 @@ use paccache_rs::select::{self, Filter};
 /// The real environment for option parsing.
 struct SysEnv {
     argv0: OsString,
+    /// `pacman-conf CacheDir`, run when `cli` reaches that point of the script.
+    default_cachedirs: Option<Vec<PathBuf>>,
 }
 
 impl cli::Env for SysEnv {
@@ -57,6 +59,10 @@ impl cli::Env for SysEnv {
 
     fn progname(&self) -> String {
         progname(&self.argv0)
+    }
+
+    fn default_cachedirs_needed(&mut self) {
+        self.default_cachedirs = Some(default_cachedirs(&self.argv0));
     }
 }
 
@@ -192,6 +198,7 @@ fn run(argv0: &OsStr, args: &[OsString]) -> i32 {
     let stderr_tty = io::stderr().is_terminal();
     let mut env = SysEnv {
         argv0: argv0.to_os_string(),
+        default_cachedirs: None,
     };
     let cfg: Config = match cli::parse(args, &mut env) {
         Ok(Parsed::Run(cfg)) => cfg,
@@ -211,8 +218,11 @@ fn run(argv0: &OsStr, args: &[OsString]) -> i32 {
         quiet: cfg.quiet,
     };
 
+    // mapfile -t cachedirs < <(pacman-conf CacheDir), already run by `cli`.
     let cachedirs = if cfg.cachedirs.is_empty() {
-        default_cachedirs(argv0)
+        env.default_cachedirs
+            .take()
+            .unwrap_or_else(|| default_cachedirs(argv0))
     } else {
         cfg.cachedirs.clone()
     };

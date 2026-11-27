@@ -131,6 +131,11 @@ pub trait Env {
     fn parse_date(&self, text: &str) -> Option<i64>;
     /// Basename of argv[0] (parseopts messages use it).
     fn progname(&self) -> String;
+    /// Called after the option loop and before the operation check, when no
+    /// cachedir was given: the point where the script runs `pacman-conf CacheDir`
+    /// (so its stderr comes before a "no operation" error). `main` runs it here
+    /// and keeps the result; the default does nothing.
+    fn default_cachedirs_needed(&mut self) {}
 }
 
 pub const MYNAME: &str = "paccache";
@@ -544,6 +549,9 @@ pub fn parse(args: &[OsString], env: &mut dyn Env) -> Result<Parsed, CliError> {
     // `[[ -z "${cachedirs[0]}" ]]` → pacman-conf replaces the whole list.
     if cachedirs.first().is_some_and(|c| c.as_os_str().is_empty()) {
         cachedirs.clear();
+    }
+    if cachedirs.is_empty() {
+        env.default_cachedirs_needed();
     }
 
     let op = match (dryrun as u8) + (delete as u8) + (mv as u8) {
