@@ -41,7 +41,7 @@ Options:
 ### With cargo
 
 ```sh
-cargo install --locked --git https://github.com/OWNER/paccache-rs
+cargo install --locked --git https://github.com/DavidDaza2906/paccache-rs
 ```
 
 or from a checkout:

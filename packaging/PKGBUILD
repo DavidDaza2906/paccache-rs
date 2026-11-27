@@ -1,15 +1,14 @@
-# Maintainer: TODO <TODO>
+# Maintainer: David Daza <daviddaza2906 at gmail dot com>
 #
 # Builds paccache-rs from a release tag. The binary is /usr/bin/paccache-rs, so the
 # package does not conflict with pacman-contrib (which provides /usr/bin/paccache).
-# TODO before publishing: replace OWNER in url and fill in sha256sums.
 
 pkgname=paccache-rs
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Drop-in Rust rewrite of paccache, the pacman cache cleaner from pacman-contrib'
 arch=('x86_64' 'aarch64')
-url='https://github.com/OWNER/paccache-rs'
+url='https://github.com/DavidDaza2906/paccache-rs'
 license=('GPL-2.0-or-later')
 depends=('gcc-libs' 'glibc' 'pacman' 'coreutils' 'findutils')
 makedepends=('cargo')
