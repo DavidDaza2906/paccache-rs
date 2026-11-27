@@ -1,0 +1,48 @@
+# Maintainer: TODO <TODO>
+#
+# Builds paccache-rs from a release tag. The binary is /usr/bin/paccache-rs, so the
+# package does not conflict with pacman-contrib (which provides /usr/bin/paccache).
+# TODO before publishing: replace OWNER in url and fill in sha256sums.
+
+pkgname=paccache-rs
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Drop-in Rust rewrite of paccache, the pacman cache cleaner from pacman-contrib'
+arch=('x86_64' 'aarch64')
+url='https://github.com/OWNER/paccache-rs'
+license=('GPL-2.0-or-later')
+depends=('gcc-libs' 'glibc' 'pacman' 'coreutils' 'findutils')
+makedepends=('cargo')
+# The test suite compares against the original paccache, pacsort and vercmp.
+checkdepends=('pacman-contrib' 'gawk')
+optdepends=('sudo: remove or move packages in a root-owned cache as a normal user')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # The differential battery needs a temporary directory without '-' in its
+  # path (pacsort 1.13.1 crashes otherwise); /tmp is fine.
+  TMPDIR=/tmp cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/paccache-rs "$pkgdir/usr/bin/paccache-rs"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
