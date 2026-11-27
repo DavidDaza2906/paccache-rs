@@ -1,0 +1,26 @@
+[package]
+name = "paccache-rs"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+description = "Drop-in Rust rewrite of paccache, the pacman cache cleaner from pacman-contrib"
+repository = ""
+keywords = ["pacman", "archlinux", "cache", "paccache"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "paccache-rs"
+path = "src/main.rs"
+
+[lib]
+name = "paccache_rs"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
