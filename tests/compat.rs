@@ -79,6 +79,11 @@ struct Scenario {
     order: Order,
     /// Extra empty directories to create under the root (e.g. odd movedirs).
     dirs: Vec<String>,
+    /// Directories (created under the root) made unreadable (mode 000) for the
+    /// run, restored before the tree is compared.
+    locked: Vec<String>,
+    /// Run with `LC_ALL=C.UTF-8` instead of `C` (locale-dependent quoting).
+    utf8: bool,
     /// `-V`: output may differ; only exit code and stderr are compared.
     version_only: bool,
     /// Fill `defcache/` (what the `pacman-conf` shim reports) with
@@ -95,6 +100,8 @@ fn sc(args: &[&str]) -> Scenario {
         stdin: None,
         order: Order::Exact,
         dirs: Vec::new(),
+        locked: Vec::new(),
+        utf8: false,
         version_only: false,
         defcache: false,
     }
@@ -135,6 +142,14 @@ impl Scenario {
     }
     fn dirs(mut self, d: &[&str]) -> Self {
         self.dirs = d.iter().map(|s| (*s).to_owned()).collect();
+        self
+    }
+    fn locked(mut self, d: &[&str]) -> Self {
+        self.locked = d.iter().map(|s| (*s).to_owned()).collect();
+        self
+    }
+    fn utf8(mut self) -> Self {
+        self.utf8 = true;
         self
     }
     fn version_only(mut self) -> Self {
@@ -219,6 +234,12 @@ fn prepare(s: &Scenario, prog: &Path) -> (tempfile::TempDir, PathBuf) {
     fs::write(root.join("afile"), b"x").unwrap();
     for d in &s.dirs {
         fs::create_dir_all(root.join(d)).unwrap();
+    }
+    for d in &s.locked {
+        let p = root.join(d);
+        fs::create_dir_all(&p).unwrap();
+        fs::write(p.join("hidden-1-1-any.pkg.tar.zst"), b"x").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
     }
     fs::create_dir(root.join("bin")).unwrap();
     let link = root.join("bin").join("paccache");
@@ -315,7 +336,7 @@ fn run_one(s: &Scenario, prog: &Path) -> Outcome {
         .env("PATH", format!("{}:{path}", root.join("bin").display()))
         .env("HOME", env::var_os("HOME").unwrap_or_else(|| "/".into()))
         .env("LANG", "C")
-        .env("LC_ALL", "C")
+        .env("LC_ALL", if s.utf8 { "C.UTF-8" } else { "C" })
         .stdin(if s.stdin.is_some() {
             Stdio::piped()
         } else {
@@ -332,6 +353,9 @@ fn run_one(s: &Scenario, prog: &Path) -> Outcome {
         let _ = pipe.write_all(input);
     }
     let out = child.wait_with_output().unwrap();
+    for d in &s.locked {
+        fs::set_permissions(root.join(d), fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let mut stdout = normalize(&out.stdout, &root);
     let mut stderr = normalize(&out.stderr, &root);
     if s.order == Order::Unordered {
@@ -509,28 +533,10 @@ scenarios! {
     d_k_attached => c(&["-dk1"]);
     d_keep_eq => c(&["--dryrun", "--keep=2", "-v"]);
     d_keep_prefixes => c(&["--dry", "--ke", "1"]);
-    // `keep` is `declare -i` in the original, so `keep=$2` is evaluated as
-    // an arithmetic expression *before* the digits-only check runs on the
-    // result: octal/hex/base#n/expressions/variable names are accepted, and
-    // an arithmetic error aborts the whole option loop (see k_abort_*).
-    k_overflow_wraps_to_1 => c(&["-d", "-v", "-k", "18446744073709551617"]);
-    k_overflow_huge => c(&["-d", "-k", "99999999999999999999"]);
-    k_010_is_octal => c(&["-d", "-v", "-k", "010", "many"]);
-    k_hex => c(&["-d", "-v", "-k", "0x2"]);
-    k_base_syntax => c(&["-d", "-v", "-k", "2#11"]);
-    k_expression => c(&["-d", "-v", "-k", "1+1"]);
-    k_name_is_var_zero => c(&["-d", "-v", "-k", "abc"]);
-    k_var_verbose => c(&["-d", "-vv", "-k", "verbose"]);
-    k_empty_is_zero => c(&["-d", "-v", "-k", ""]);
-    k_empty_long_eq => c(&["-d", "-v", "--keep="]);
-    k_space_padded => c(&["-d", "-v", "-k", " 2"]);
-    k_plus => c(&["-d", "-v", "-k", "+1"]);
+    // `-k` values that the original evaluates as bash arithmetic are in the
+    // `divergence_*` group below.
     k_negative => c(&["-d", "-k", "-1"]);
     k_negative_expr => c(&["-d", "-k", "1-2"]);
-    k_abort_08 => ck(&["-d", "-v", "-k", "08", "linux"]);
-    k_abort_grouped_1v => ck(&["-dk1v", "vim"]);
-    k_abort_ignores_later_opts => ck(&["-d", "-k", "9z", "-r", "-k0"]);
-    k_abort_before_cachedir => sc(&["-d", "-v", "-k", "08", "-c", "{cache}", "linux"]).defcache();
     // --- verbosity / null ------------------------------------------------
     d_v => c(&["-d", "-v"]);
     d_vv => c(&["-d", "-vv"]);
@@ -595,6 +601,9 @@ scenarios! {
     t_invalid_mtime => c(&["-d", "--min-mtime", "yesterday-ish"]);
     t_remove => c(&["-r", "-k0", "--min-mtime", "@{mid}"]).fx(Ages);
     t_move_recursive => c(&["-m", "{dest}", "-k1", "--min-atime", "@{far}"]);
+    t_unreadable_subdir => c(&["-d", "-vv", "-k0", "--min-mtime", "@{far}"]).locked(&["cache/locked"]);
+    t_unreadable_subdir_utf8 => c(&["-d", "-vv", "-k0", "--min-mtime", "@{far}"]).locked(&["cache/locked"]).utf8();
+    g_unreadable_subdir => c(&["-d", "-vv", "-k0"]).locked(&["cache/locked"]);
     // --- quiet ---------------------------------------------------------------
     q_d => c(&["-d", "-q"]);
     q_d_v => c(&["-d", "-q", "-v"]);
@@ -620,7 +629,6 @@ scenarios! {
     m_missing => c(&["-m", "{root}/nope"]);
     m_missing_relative => c(&["-m", "nope"]);
     m_is_file => c(&["-m", "afile"]);
-    m_percent_in_name => c(&["-m", "de%sst", "-k1"]).dirs(&["de%sst"]);
     m_space_in_name => c(&["-m", "dest dir", "-k1"]).dirs(&["dest dir"]);
     m_f_q => c(&["-m", "{dest}", "-f", "-q"]);
     // --- cachedirs ---------------------------------------------------------
@@ -667,10 +675,8 @@ scenarios! {
     p_ambiguous_m => c(&["-d", "--m", "x"]);
     p_missing_arg_short => sc(&["-d", "-c"]);
     p_missing_arg_long => sc(&["-d", "--cachedir"]);
-    p_k_eats_next_option => c(&["-d", "-k"]);
     p_missing_arg_k_end => sc(&["-c", "{cache}", "-d", "-k"]);
     p_noarg_with_value => c(&["--dryrun=1"]);
-    p_error_order_k_first => sc(&["-k", "x", "-c", "{root}/nope"]);
     p_noop_before_cachedir => sc(&["-c", "{root}/nope"]);
     p_movedir_before_cachedir => sc(&["-m", "{root}/nope", "-c", "{root}/nope2"]);
     p_two_ops_before_movedir => sc(&["-r", "-m", "{root}/nope", "-c", "{cache}"]);
@@ -680,10 +686,168 @@ scenarios! {
     h_prefix => sc(&["--he"]);
     h_grouped => sc(&["-dh"]);
     h_parse_error_first => sc(&["-h", "-x"]);
-    h_bad_k_before_help => sc(&["-k", "x", "-h"]);
     h_help_before_bad_k => sc(&["-h", "-k", "x"]);
     v_short => sc(&["-V"]).version_only();
     v_long => sc(&["--version"]).version_only();
+}
+
+// ---------------------------------------------------------------------------
+// Intentional divergences
+// ---------------------------------------------------------------------------
+//
+// Behaviour where paccache-rs deliberately differs from the original (see the
+// README, "Differences from paccache"). These tests do not compare with the
+// original as-is: they assert what *we* do, either explicitly or by comparing
+// with the original run on the equivalent, non-quirky arguments.
+//
+// 1. `-k` accepts only `[0-9]+`, base 10, up to i64::MAX. The original's
+//    `keep` is `declare -i`, so the argument is evaluated as bash arithmetic
+//    (`010` = 8, `0x2`, `2#11`, `1+1`, variable names, empty = 0, overflow
+//    wraps) and an arithmetic error (`08`, `9z`, `1v`) aborts its option loop
+//    and ends with exit 0.
+// 2. A `%` in the `-m` directory is printed literally (the original uses the
+//    summary line as a printf format).
+
+const K_DIE: &str = "==> ERROR: argument to option -k must be a non-negative integer\n";
+
+/// Our binary rejects the `-k` value: the die message, exit 1, nothing on
+/// stdout, cache untouched.
+fn ours_rejects_k(name: &str, s: Scenario) {
+    let (_tmp, root) = prepare(&s, &ours_path());
+    let pristine = tree(&root);
+    drop(_tmp);
+    let got = run_one(&s, &ours_path());
+    assert_eq!(got.code, Some(1), "[{name}] exit code");
+    assert_eq!(show(&got.stdout), "", "[{name}] stdout");
+    assert_eq!(show(&got.stderr), K_DIE, "[{name}] stderr");
+    assert_eq!(got.tree, pristine, "[{name}] tree");
+}
+
+/// Our binary with `ours` behaves exactly like the original with `original`.
+fn ours_like_original_with(name: &str, ours: Scenario, original: Scenario) {
+    let want = run_one(&original, &original_path());
+    let got = run_one(&ours, &ours_path());
+    let problems = compare(
+        name,
+        &ours,
+        &want,
+        &got,
+        ("original(equivalent args)", "paccache-rs"),
+    );
+    assert!(
+        problems.is_empty(),
+        "divergence `{name}`: ours {:?} vs original {:?}\n\n{}",
+        ours.args,
+        original.args,
+        problems.join("\n\n")
+    );
+}
+
+macro_rules! rejects_k {
+    ($($name:ident => $s:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                ours_rejects_k(stringify!($name), $s);
+            }
+        )*
+    };
+}
+
+rejects_k! {
+    divergence_k_overflow_u64_wrap => c(&["-d", "-v", "-k", "18446744073709551617"]);
+    divergence_k_overflow_huge => c(&["-d", "-k", "99999999999999999999"]);
+    divergence_k_overflow_i64_max_plus_1 => c(&["-d", "-k", "9223372036854775808"]);
+    divergence_k_hex => c(&["-d", "-v", "-k", "0x2"]);
+    divergence_k_base_syntax => c(&["-d", "-v", "-k", "2#11"]);
+    divergence_k_expression => c(&["-d", "-v", "-k", "1+1"]);
+    divergence_k_name_is_var_zero => c(&["-d", "-v", "-k", "abc"]);
+    divergence_k_var_verbose => c(&["-d", "-vv", "-k", "verbose"]);
+    divergence_k_empty => c(&["-d", "-v", "-k", ""]);
+    divergence_k_empty_long_eq => c(&["-d", "-v", "--keep="]);
+    divergence_k_space_padded => c(&["-d", "-v", "-k", " 2"]);
+    divergence_k_plus => c(&["-d", "-v", "-k", "+1"]);
+    divergence_k_abort_grouped_1v => ck(&["-dk1v", "vim"]);
+    divergence_k_abort_ignores_later_opts => ck(&["-d", "-k", "9z", "-r", "-k0"]);
+    divergence_k_bad_before_help => sc(&["-k", "x", "-h"]);
+    divergence_k_error_before_op_check => sc(&["-k", "x", "-c", "{root}/nope"]);
+    divergence_k_eats_next_option => c(&["-d", "-k"]);
+}
+
+/// `-k` with leading zeros is plain base 10 (the original: octal, or an
+/// arithmetic error for `08` that aborts its option loop).
+#[test]
+fn divergence_k_010_is_decimal() {
+    ours_like_original_with(
+        "divergence_k_010_is_decimal",
+        c(&["-d", "-v", "-k", "010", "many"]),
+        c(&["-d", "-v", "-k", "10", "many"]),
+    );
+}
+
+#[test]
+fn divergence_k_08_is_decimal() {
+    ours_like_original_with(
+        "divergence_k_08_is_decimal",
+        ck(&["-d", "-v", "-k", "08", "linux"]),
+        ck(&["-d", "-v", "-k", "8", "linux"]),
+    );
+}
+
+#[test]
+fn divergence_k_08_then_cachedir() {
+    ours_like_original_with(
+        "divergence_k_08_then_cachedir",
+        sc(&["-d", "-v", "-k", "08", "-c", "{cache}", "linux"]).defcache(),
+        sc(&["-d", "-v", "-k", "8", "-c", "{cache}", "linux"]).defcache(),
+    );
+}
+
+#[test]
+fn divergence_k_i64_max_accepted() {
+    ours_like_original_with(
+        "divergence_k_i64_max_accepted",
+        c(&["-d", "-v", "-k", "9223372036854775807"]),
+        c(&["-d", "-v", "-k", "9223372036854775807"]),
+    );
+}
+
+/// The `-m` directory is printed literally even if it contains `%`: same as
+/// the original with a `%`-free directory name.
+#[test]
+fn divergence_m_percent_in_name() {
+    let name = "divergence_m_percent_in_name";
+    let ours = c(&["-m", "de%sst", "-k1"]).dirs(&["de%sst"]);
+    let original = c(&["-m", "deXsst", "-k1"]).dirs(&["deXsst"]);
+    let fix = |o: Outcome| {
+        let r = |b: &[u8]| {
+            String::from_utf8_lossy(b)
+                .replace("deXsst", "de%sst")
+                .into_bytes()
+        };
+        let mut tree: Vec<String> = o
+            .tree
+            .iter()
+            .map(|l| l.replace("deXsst", "de%sst"))
+            .collect();
+        tree.sort();
+        Outcome {
+            code: o.code,
+            stdout: r(&o.stdout),
+            stderr: r(&o.stderr),
+            tree,
+        }
+    };
+    let want = fix(run_one(&original, &original_path()));
+    let mut got = run_one(&ours, &ours_path());
+    got.tree.sort();
+    assert!(
+        show(&got.stdout).contains("moved to '<ROOT>/de%sst'"),
+        "[{name}] stdout: {}",
+        show(&got.stdout)
+    );
+    let problems = compare(name, &ours, &want, &got, ("original(no %)", "paccache-rs"));
+    assert!(problems.is_empty(), "{}", problems.join("\n\n"));
 }
 
 /// Debug helper: `COMPAT_DUMP_DIR=/some/dir cargo test --test compat dump_fixture -- --ignored`

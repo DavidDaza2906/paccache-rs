@@ -42,10 +42,11 @@ pub struct Entry {
 /// `with_times == true`: recursive like `find DIR -name '*.pkg.tar*.sig' -prune -o -name '*.pkg.tar*'`.
 /// `dir` must already be absolute — the logical `$PWD` bash has after `pushd cachedir`
 /// (no `..`/`.` components, no trailing slash, symlinks NOT resolved). Result sorted
-/// with `pacsort_files_cmp` (stable, from the shell's listing order).
+/// with [`pkgname::pacsort_files_sort`] (stable, from the shell's listing order).
 ///
 /// Never fails in practice: like the script, an unreadable dir yields an empty glob,
-/// and find-mode errors are reported on stderr (`find: ‘path’: Permission denied`)
+/// and find-mode errors are reported on stderr (`find: ‘path’: Permission denied`,
+/// quoted per locale like find)
 /// while the walk continues.
 pub fn scan(dir: &Path, with_times: bool) -> io::Result<Vec<Entry>> {
     let raw: Vec<(PathBuf, f64, f64)> = if with_times {
@@ -61,9 +62,13 @@ pub fn scan(dir: &Path, with_times: bool) -> io::Result<Vec<Entry>> {
     };
     let mut entries: Vec<Entry> = raw
         .into_iter()
-        .map(|(p, atime, mtime)| Entry { file: pkgname::parse(&p), atime, mtime })
+        .map(|(p, atime, mtime)| Entry {
+            file: pkgname::parse(&p),
+            atime,
+            mtime,
+        })
         .collect();
-    entries.sort_by(|a, b| pkgname::pacsort_files_cmp(&a.file.path, &b.file.path));
+    pkgname::pacsort_files_sort(&mut entries, |e| e.file.path.as_path());
     Ok(entries)
 }
 
@@ -87,7 +92,9 @@ fn glob_matches(name: &[u8]) -> bool {
 
 /// Unsorted-by-pacsort glob listing, in bash's order (strcoll).
 pub(crate) fn list_glob(dir: &Path) -> Vec<PathBuf> {
-    let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
+    let Ok(rd) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut names: Vec<CString> = rd
         .filter_map(Result::ok)
         .map(|e| e.file_name().into_vec())
@@ -157,7 +164,10 @@ pub(crate) fn list_find(dir: &Path) -> Vec<Found> {
     let mut out = Vec::new();
     let bytes = dir.as_os_str().as_bytes();
     let trimmed = {
-        let t = bytes.iter().rposition(|&c| c != b'/').map_or(&bytes[..0], |i| &bytes[..=i]);
+        let t = bytes
+            .iter()
+            .rposition(|&c| c != b'/')
+            .map_or(&bytes[..0], |i| &bytes[..=i]);
         if t.is_empty() && !bytes.is_empty() {
             &bytes[..1]
         } else {
@@ -226,7 +236,9 @@ fn visit(path: &Path, name: &[u8], md: &fs::Metadata, out: &mut Vec<Found>) {
 }
 
 fn inode_sort_useful(dir: &Path) -> bool {
-    let Ok(c) = CString::new(dir.as_os_str().as_bytes()) else { return true };
+    let Ok(c) = CString::new(dir.as_os_str().as_bytes()) else {
+        return true;
+    };
     let mut st: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
         return true;
@@ -236,16 +248,55 @@ fn inode_sort_useful(dir: &Path) -> bool {
     !matches!(t, S_MAGIC_CIFS | S_MAGIC_NFS | S_MAGIC_TMPFS)
 }
 
-/// `find: ‘PATH’: strerror` (find's locale quoting in a UTF-8 locale).
+/// `find: ‘PATH’: strerror`, with find's `locale_quoting_style` quotes: gnulib's
+/// `gettext_quote` (no translation available) picks them from the `LC_CTYPE`
+/// charset of the environment: `‘…’` for UTF-8, `\xa1\xae…\xa1\xaf` for GB18030,
+/// `'…'` otherwise (C locale included).
 fn find_error(path: &Path, e: &io::Error) {
-    eprintln!("find: \u{2018}{}\u{2019}: {}", path.to_string_lossy(), strerror(e));
+    let (open, close) = locale_quotes();
+    let mut line = b"find: ".to_vec();
+    line.extend_from_slice(open);
+    line.extend_from_slice(path.as_os_str().as_bytes());
+    line.extend_from_slice(close);
+    line.extend_from_slice(b": ");
+    line.extend_from_slice(strerror(e).as_bytes());
+    line.push(b'\n');
+    let _ = io::Write::write_all(&mut io::stderr().lock(), &line);
+}
+
+/// Quote pair of gnulib's `gettext_quote` for the environment's `LC_CTYPE`.
+fn locale_quotes() -> (&'static [u8], &'static [u8]) {
+    static Q: std::sync::OnceLock<(&'static [u8], &'static [u8])> = std::sync::OnceLock::new();
+    *Q.get_or_init(|| {
+        let codeset = unsafe {
+            let loc = libc::newlocale(libc::LC_CTYPE_MASK, c"".as_ptr(), std::ptr::null_mut());
+            if loc.is_null() {
+                String::new()
+            } else {
+                let cs = std::ffi::CStr::from_ptr(libc::nl_langinfo_l(libc::CODESET, loc))
+                    .to_string_lossy()
+                    .into_owned();
+                libc::freelocale(loc);
+                cs
+            }
+        };
+        if codeset.eq_ignore_ascii_case("UTF-8") {
+            ("\u{2018}".as_bytes(), "\u{2019}".as_bytes())
+        } else if codeset.eq_ignore_ascii_case("GB18030") {
+            (b"\xa1\xae", b"\xa1\xaf")
+        } else {
+            (b"'", b"'")
+        }
+    })
 }
 
 /// Plain C `strerror` text of an io::Error (without Rust's " (os error N)").
 pub(crate) fn strerror(e: &io::Error) -> String {
     match e.raw_os_error() {
         Some(code) => unsafe {
-            std::ffi::CStr::from_ptr(libc::strerror(code)).to_string_lossy().into_owned()
+            std::ffi::CStr::from_ptr(libc::strerror(code))
+                .to_string_lossy()
+                .into_owned()
         },
         None => e.to_string(),
     }
@@ -275,7 +326,10 @@ mod tests {
             "paccache-rs-scan-{}-{}-{}",
             tag,
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&base).unwrap();
         base
@@ -319,7 +373,13 @@ mod tests {
         for n in names {
             touch(&root.join(os(n)));
         }
-        for d in ["d.pkg.tar.zst", "sub", ".hidden", "pruned.pkg.tar.sig", "sub/deeper"] {
+        for d in [
+            "d.pkg.tar.zst",
+            "sub",
+            ".hidden",
+            "pruned.pkg.tar.sig",
+            "sub/deeper",
+        ] {
             fs::create_dir_all(root.join(d)).unwrap();
         }
         for f in [
@@ -335,14 +395,33 @@ mod tests {
         symlink("nowhere", root.join("broken.pkg.tar.zst")).unwrap();
         symlink("sub", root.join("link.pkg.tar.zst")).unwrap();
         symlink("sub", root.join("linkdir")).unwrap();
-        symlink("a-1-1-x86_64.pkg.tar.zst", root.join("alias-1-1-x86_64.pkg.tar.zst")).unwrap();
+        symlink(
+            "a-1-1-x86_64.pkg.tar.zst",
+            root.join("alias-1-1-x86_64.pkg.tar.zst"),
+        )
+        .unwrap();
         // pre-epoch / fractional times
         let t = root.join("e-1-1-any.pkg.tar.zst");
-        let st = Command::new("touch").arg("-d").arg("1960-01-01 00:00:00.25 UTC").arg(&t).status();
+        let st = Command::new("touch")
+            .arg("-d")
+            .arg("1960-01-01 00:00:00.25 UTC")
+            .arg(&t)
+            .status();
         assert!(st.unwrap().success());
         let t = root.join("x.pkg.tar");
-        Command::new("touch").arg("-d").arg("@0.5").arg(&t).status().unwrap();
-        Command::new("touch").arg("-a").arg("-d").arg("@-0.5").arg(&t).status().unwrap();
+        Command::new("touch")
+            .arg("-d")
+            .arg("@0.5")
+            .arg(&t)
+            .status()
+            .unwrap();
+        Command::new("touch")
+            .arg("-a")
+            .arg("-d")
+            .arg("@-0.5")
+            .arg(&t)
+            .status()
+            .unwrap();
     }
 
     fn bash_glob(dir: &Path) -> Vec<PathBuf> {
@@ -406,7 +485,10 @@ mod tests {
 
     #[test]
     fn time_text() {
-        assert_eq!(find_time_text((1795746737, 947979688)), "1795746737.9479796880");
+        assert_eq!(
+            find_time_text((1795746737, 947979688)),
+            "1795746737.9479796880"
+        );
         assert_eq!(find_time_text((-1, 500000000)), "-1.5000000000");
         assert_eq!(find_time_text((0, 0)), "0.0000000000");
     }
@@ -442,7 +524,10 @@ mod tests {
         let root = tmpdir("find");
         weird_tree(&root);
         let (out, err) = real_find(&root);
-        assert_eq!(String::from_utf8_lossy(&our_find_text(&root)), String::from_utf8_lossy(&out));
+        assert_eq!(
+            String::from_utf8_lossy(&our_find_text(&root)),
+            String::from_utf8_lossy(&out)
+        );
         assert_eq!(err, "");
         // the start dir itself may match; a symlinked start dir is not descended
         let named = root.join("cache.pkg.tar.d");
@@ -478,7 +563,11 @@ mod tests {
 
     #[test]
     fn time_values_parse_like_awk() {
-        let f = Found { path: PathBuf::new(), atime: (1795746737, 999999999), mtime: (-1, 500000000) };
+        let f = Found {
+            path: PathBuf::new(),
+            atime: (1795746737, 999999999),
+            mtime: (-1, 500000000),
+        };
         // 1795746737.9999999990 rounds to the next integer as a double, like strtod
         assert_eq!(f.atime_f64(), 1795746738.0);
         assert_eq!(f.mtime_f64(), -1.5);

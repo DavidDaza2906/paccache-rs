@@ -92,7 +92,9 @@ pub fn needs_root(cachedirs: &[PathBuf], movedir: Option<&Path>) -> bool {
 
 /// bash `test -w`.
 fn writable(p: &Path) -> bool {
-    let Ok(c) = CString::new(p.as_os_str().as_bytes()) else { return false };
+    let Ok(c) = CString::new(p.as_os_str().as_bytes()) else {
+        return false;
+    };
     unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), libc::W_OK, libc::AT_EACCESS) == 0 }
 }
 
@@ -103,16 +105,25 @@ fn type_p(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let default = OsStr::new("/usr/local/sbin:/usr/local/bin:/usr/bin");
     let path = path.unwrap_or(default);
     for elem in path.as_bytes().split(|&c| c == b':') {
-        let mut cand = if elem.is_empty() { b".".to_vec() } else { elem.to_vec() };
+        let mut cand = if elem.is_empty() {
+            b".".to_vec()
+        } else {
+            elem.to_vec()
+        };
         cand.push(b'/');
         cand.extend_from_slice(name.as_bytes());
         let cand = PathBuf::from(OsString::from_vec(cand));
-        let Ok(md) = fs::metadata(&cand) else { continue };
+        let Ok(md) = fs::metadata(&cand) else {
+            continue;
+        };
         if md.is_dir() {
             continue;
         }
-        let Ok(c) = CString::new(cand.as_os_str().as_bytes()) else { continue };
-        if unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), libc::X_OK, libc::AT_EACCESS) } == 0 {
+        let Ok(c) = CString::new(cand.as_os_str().as_bytes()) else {
+            continue;
+        };
+        if unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), libc::X_OK, libc::AT_EACCESS) } == 0
+        {
             return Some(cand);
         }
     }
@@ -120,7 +131,12 @@ fn type_p(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
 }
 
 /// The argv the script runs for `op` (None for a dry run). `sudo` = path to prefix with.
-pub fn command_argv(op: &Op, force: bool, verbose: bool, sudo: Option<&Path>) -> Option<Vec<OsString>> {
+pub fn command_argv(
+    op: &Op,
+    force: bool,
+    verbose: bool,
+    sudo: Option<&Path>,
+) -> Option<Vec<OsString>> {
     let mut argv: Vec<OsString> = Vec::new();
     if let Some(s) = sudo {
         argv.push(s.as_os_str().to_os_string());
@@ -154,7 +170,13 @@ pub fn command_argv(op: &Op, force: bool, verbose: bool, sudo: Option<&Path>) ->
 ///
 /// Signature change vs. the scaffold: returns `Result<i32, ApplyError>` so `main` can
 /// print the "no sudo" errors with its own formatting (colors) and exit 1.
-pub fn apply(op: &Op, paths: &[PathBuf], force: bool, verbose: bool, as_root: bool) -> Result<i32, ApplyError> {
+pub fn apply(
+    op: &Op,
+    paths: &[PathBuf],
+    force: bool,
+    verbose: bool,
+    as_root: bool,
+) -> Result<i32, ApplyError> {
     if *op == Op::DryRun {
         return Ok(0);
     }
@@ -174,7 +196,9 @@ pub fn apply(op: &Op, paths: &[PathBuf], force: bool, verbose: bool, as_root: bo
         None
     };
     let argv = command_argv(op, force, verbose, sudo.as_deref()).expect("not a dry run");
-    run(&argv, paths, None).map(|(code, _, _)| code).map_err(ApplyError::Spawn)
+    run(&argv, paths, None)
+        .map(|(code, _, _)| code)
+        .map_err(ApplyError::Spawn)
 }
 
 type Captured = (i32, Vec<u8>, Vec<u8>);
@@ -224,7 +248,10 @@ mod tests {
             "paccache-rs-actions-{}-{}-{}",
             tag,
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&base).unwrap();
         base
@@ -236,17 +263,53 @@ mod tests {
 
     #[test]
     fn argv_shapes() {
-        let s = |v: Option<Vec<OsString>>| v.map(|v| v.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>());
+        let s = |v: Option<Vec<OsString>>| {
+            v.map(|v| {
+                v.iter()
+                    .map(|a| a.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+            })
+        };
         assert_eq!(command_argv(&Op::DryRun, true, true, None), None);
-        assert_eq!(s(command_argv(&Op::Remove, false, false, None)).unwrap(), ["xargs", "-0", "rm"]);
-        assert_eq!(s(command_argv(&Op::Remove, true, true, None)).unwrap(), ["xargs", "-0", "rm", "-f", "-v"]);
         assert_eq!(
-            s(command_argv(&Op::Move(p("/m d")), true, true, Some(Path::new("/usr/bin/sudo")))).unwrap(),
-            ["/usr/bin/sudo", "xargs", "-0", "mv", "-f", "-v", "-t", "/m d"]
+            s(command_argv(&Op::Remove, false, false, None)).unwrap(),
+            ["xargs", "-0", "rm"]
         );
-        assert_eq!(s(command_argv(&Op::Move(p("/m")), false, true, None)).unwrap(), ["xargs", "-0", "mv", "-v", "-t", "/m"]);
         assert_eq!(
-            s(command_argv(&Op::Remove, false, false, Some(Path::new("./sudo")))).unwrap(),
+            s(command_argv(&Op::Remove, true, true, None)).unwrap(),
+            ["xargs", "-0", "rm", "-f", "-v"]
+        );
+        assert_eq!(
+            s(command_argv(
+                &Op::Move(p("/m d")),
+                true,
+                true,
+                Some(Path::new("/usr/bin/sudo"))
+            ))
+            .unwrap(),
+            [
+                "/usr/bin/sudo",
+                "xargs",
+                "-0",
+                "mv",
+                "-f",
+                "-v",
+                "-t",
+                "/m d"
+            ]
+        );
+        assert_eq!(
+            s(command_argv(&Op::Move(p("/m")), false, true, None)).unwrap(),
+            ["xargs", "-0", "mv", "-v", "-t", "/m"]
+        );
+        assert_eq!(
+            s(command_argv(
+                &Op::Remove,
+                false,
+                false,
+                Some(Path::new("./sudo"))
+            ))
+            .unwrap(),
             ["./sudo", "xargs", "-0", "rm"]
         );
     }
@@ -263,7 +326,13 @@ mod tests {
         fs::write(exe.join("sudo"), "#!/bin/sh\n").unwrap();
         fs::set_permissions(exe.join("sudo"), fs::Permissions::from_mode(0o755)).unwrap();
         let path = |parts: &[&Path]| {
-            OsString::from(parts.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>().join(":"))
+            OsString::from(
+                parts
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(":"),
+            )
         };
         let pa = path(&[&isdir, &noexe, &exe]);
         assert_eq!(type_p("sudo", Some(&pa)), Some(exe.join("sudo")));
@@ -277,7 +346,9 @@ mod tests {
                 .env("PATH", pv)
                 .output()
                 .unwrap();
-            let ours = type_p("sudo", Some(pv)).map(|p| format!("{}\n", p.display())).unwrap_or_default();
+            let ours = type_p("sudo", Some(pv))
+                .map(|p| format!("{}\n", p.display()))
+                .unwrap_or_default();
             assert_eq!(String::from_utf8_lossy(&o.stdout), ours);
         }
         // empty element = "./sudo" (relative to cwd; just check the spelling)
@@ -300,15 +371,31 @@ mod tests {
         fs::write(&b, vec![0u8; 2000]).unwrap();
         fs::create_dir(d.join("b-1-1-any.pkg.tar.zst.sig")).unwrap(); // dir: not -f
         fs::write(&c, vec![0u8; 5]).unwrap();
-        symlink(d.join("a-1-1-any.pkg.tar.zst.sig"), d.join("c-1-1-any.pkg.tar.zst.sig")).unwrap(); // -f follows
+        symlink(
+            d.join("a-1-1-any.pkg.tar.zst.sig"),
+            d.join("c-1-1-any.pkg.tar.zst.sig"),
+        )
+        .unwrap(); // -f follows
         symlink("a-1-1-any.pkg.tar.zst", &e).unwrap();
         symlink("nowhere", d.join("e-1-1-any.pkg.tar.zst.sig")).unwrap(); // dangling: not -f
         let all = with_sigs(&[a.clone(), b.clone(), c.clone(), e.clone()]);
         let sig = |x: &Path| PathBuf::from(format!("{}.sig", x.display()));
-        assert_eq!(all, vec![a.clone(), sig(&a), b.clone(), c.clone(), sig(&c), e.clone()]);
+        assert_eq!(
+            all,
+            vec![a.clone(), sig(&a), b.clone(), c.clone(), sig(&c), e.clone()]
+        );
         // compare with stat -c %s (lstat)
-        let o = Command::new("stat").arg("-c").arg("%s").args(&all).output().unwrap();
-        let expected: u64 = String::from_utf8(o.stdout).unwrap().lines().map(|l| l.parse::<u64>().unwrap()).sum();
+        let o = Command::new("stat")
+            .arg("-c")
+            .arg("%s")
+            .args(&all)
+            .output()
+            .unwrap();
+        let expected: u64 = String::from_utf8(o.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.parse::<u64>().unwrap())
+            .sum();
         assert_eq!(total_size(&all).unwrap(), expected);
         assert!(total_size(&[d.join("missing")]).is_err());
         fs::remove_dir_all(&d).unwrap();
@@ -322,8 +409,20 @@ mod tests {
         fs::create_dir(&ro).unwrap();
         fs::create_dir(&rw).unwrap();
         fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
-        for x in [&ro, &rw, &d.join("missing"), &PathBuf::from("/"), &PathBuf::from("/proc/1")] {
-            let st = Command::new("/usr/bin/bash").arg("-c").arg("[[ -w $1 ]]").arg("bash").arg(x).status().unwrap();
+        for x in [
+            &ro,
+            &rw,
+            &d.join("missing"),
+            &PathBuf::from("/"),
+            &PathBuf::from("/proc/1"),
+        ] {
+            let st = Command::new("/usr/bin/bash")
+                .arg("-c")
+                .arg("[[ -w $1 ]]")
+                .arg("bash")
+                .arg(x)
+                .status()
+                .unwrap();
             assert_eq!(writable(x), st.success(), "{}", x.display());
         }
         let root = unsafe { libc::geteuid() } == 0;
@@ -339,7 +438,13 @@ mod tests {
     /// Build two identical trees, run our command in one and the script's pipeline in
     /// the other (via bash), and compare stdout/stderr (with the dir names normalised),
     /// exit status and the resulting trees.
-    fn compare_with_script(tag: &str, op_of: impl Fn(&Path) -> Op, force: bool, verbose: bool, setup: impl Fn(&Path) -> Vec<String>) {
+    fn compare_with_script(
+        tag: &str,
+        op_of: impl Fn(&Path) -> Op,
+        force: bool,
+        verbose: bool,
+        setup: impl Fn(&Path) -> Vec<String>,
+    ) {
         let ours = tmpdir(&format!("{tag}-o"));
         let theirs = tmpdir(&format!("{tag}-t"));
         let names_o = setup(&ours);
@@ -375,7 +480,9 @@ mod tests {
             .args(names_t.iter().map(|n| theirs.join(n)))
             .output()
             .unwrap();
-        let norm = |b: &[u8], dir: &Path| String::from_utf8_lossy(b).replace(&dir.to_string_lossy().into_owned(), "DIR");
+        let norm = |b: &[u8], dir: &Path| {
+            String::from_utf8_lossy(b).replace(&dir.to_string_lossy().into_owned(), "DIR")
+        };
         assert_eq!(code_o, o.status.code().unwrap(), "exit code");
         assert_eq!(norm(&out_o, &ours), norm(&o.stdout, &theirs), "stdout");
         assert_eq!(norm(&err_o, &ours), norm(&o.stderr, &theirs), "stderr");
@@ -447,7 +554,13 @@ mod tests {
 
     #[test]
     fn move_into_missing_dir_matches_script() {
-        compare_with_script("mvmiss", |d| Op::Move(d.join("nope")), false, true, odd_files);
+        compare_with_script(
+            "mvmiss",
+            |d| Op::Move(d.join("nope")),
+            false,
+            true,
+            odd_files,
+        );
     }
 
     #[test]
@@ -455,41 +568,65 @@ mod tests {
         if unsafe { libc::geteuid() } == 0 {
             return;
         }
-        compare_with_script("rmro", |_| Op::Remove, true, true, |d| {
-            let ro = d.join("ro");
-            fs::create_dir(&ro).unwrap();
-            fs::write(ro.join("p-1-1-any.pkg.tar.zst"), "x").unwrap();
-            fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
-            vec!["ro/p-1-1-any.pkg.tar.zst".into()]
-        });
+        compare_with_script(
+            "rmro",
+            |_| Op::Remove,
+            true,
+            true,
+            |d| {
+                let ro = d.join("ro");
+                fs::create_dir(&ro).unwrap();
+                fs::write(ro.join("p-1-1-any.pkg.tar.zst"), "x").unwrap();
+                fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+                vec!["ro/p-1-1-any.pkg.tar.zst".into()]
+            },
+        );
     }
 
     #[test]
     fn many_paths_batch_like_xargs() {
         // more than one xargs batch (128 KiB command buffer)
-        compare_with_script("many", |_| Op::Remove, false, true, |d| {
-            (0..3000)
-                .map(|i| {
-                    let n = format!("{}-{i}-1-any.pkg.tar.zst", "x".repeat(60));
-                    fs::write(d.join(&n), "").unwrap();
-                    n
-                })
-                .collect()
-        });
+        compare_with_script(
+            "many",
+            |_| Op::Remove,
+            false,
+            true,
+            |d| {
+                (0..3000)
+                    .map(|i| {
+                        let n = format!("{}-{i}-1-any.pkg.tar.zst", "x".repeat(60));
+                        fs::write(d.join(&n), "").unwrap();
+                        n
+                    })
+                    .collect()
+            },
+        );
     }
 
     #[test]
     fn duplicated_paths_fail_with_123_like_script() {
         // `-c X -c X` lists every candidate twice: the second rm fails -> xargs 123.
-        compare_with_script("dup", |_| Op::Remove, false, true, |d| {
-            fs::write(d.join("a-1-1-any.pkg.tar.zst"), "x").unwrap();
-            vec!["a-1-1-any.pkg.tar.zst".into(), "a-1-1-any.pkg.tar.zst".into()]
-        });
+        compare_with_script(
+            "dup",
+            |_| Op::Remove,
+            false,
+            true,
+            |d| {
+                fs::write(d.join("a-1-1-any.pkg.tar.zst"), "x").unwrap();
+                vec![
+                    "a-1-1-any.pkg.tar.zst".into(),
+                    "a-1-1-any.pkg.tar.zst".into(),
+                ]
+            },
+        );
     }
 
     #[test]
     fn dry_run_is_noop() {
-        assert_eq!(apply(&Op::DryRun, &[p("/nonexistent")], true, true, true).unwrap(), 0);
+        assert_eq!(
+            apply(&Op::DryRun, &[p("/nonexistent")], true, true, true).unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -497,7 +634,10 @@ mod tests {
         let d = tmpdir("apply");
         let f = d.join("z-1-1-any.pkg.tar.zst");
         fs::write(&f, "x").unwrap();
-        assert_eq!(apply(&Op::Remove, std::slice::from_ref(&f), false, false, false).unwrap(), 0);
+        assert_eq!(
+            apply(&Op::Remove, std::slice::from_ref(&f), false, false, false).unwrap(),
+            0
+        );
         assert!(!f.exists());
         assert_eq!(apply(&Op::Remove, &[f], false, false, false).unwrap(), 123);
         fs::remove_dir_all(&d).unwrap();

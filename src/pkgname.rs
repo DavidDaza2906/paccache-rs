@@ -39,8 +39,11 @@
 //!   than `slice::sort_by` (which may order differently or even panic).
 //! * Crash: a "file" whose basename has no `-` (the `-` is in a directory,
 //!   e.g. `/my-cache/foo.pkg.tar.zst`) makes `strrchr` return NULL and pacsort
-//!   segfaults while reading input, printing nothing. [`pacsort_files_sort`]
-//!   reproduces that by emptying the list; see [`pacsort_crashes`].
+//!   segfaults while reading input, printing nothing (so the original finds no
+//!   candidates in that cachedir). DIVERGENCE (decided by the coordinator): we
+//!   do not reproduce the crash; such a line is compared as a non-file (plain
+//!   `alpm_pkg_vercmp` of the whole path) and the list is sorted normally.
+//!   [`pacsort_crashes`] remains as a diagnostic.
 //! * Underflowed names (`foo-x86_64.pkg.tar.zst`, `a-b.pkg.tar`, ...):
 //!   `memcmp` with a huge length reads the basename up to its NUL; we model the
 //!   basename followed by a NUL and stop when both sides hit NUL together.
@@ -130,6 +133,7 @@ fn is_file(data: &[u8]) -> bool {
 }
 
 /// True if pacsort 1.13.1 segfaults on this input line in `--files` mode.
+/// Diagnostic only: [`pacsort_files_sort`] does not reproduce the crash.
 pub fn pacsort_crashes(path: &Path) -> bool {
     let data = path.as_os_str().as_bytes();
     is_file(data) && !basename(data).contains(&b'-')
@@ -142,7 +146,8 @@ impl<'a> Input<'a> {
         }
         let base_start = data.len() - basename(data).len();
         let base = &data[base_start..];
-        // Callers filter crashing inputs out; be defensive anyway.
+        // pacsort would segfault here (see `pacsort_crashes`); we treat the line
+        // as a non-file instead.
         let Some(end) = base.iter().rposition(|&c| c == b'-') else {
             return Input { data, file: None };
         };
@@ -223,27 +228,39 @@ pub fn pacsort_files_cmp(a: &Path, b: &Path) -> Ordering {
 }
 
 /// Sort `items` exactly like `pacsort --files` would print their paths,
-/// including glibc's stable merge sort and the crash case (list emptied).
+/// including glibc's stable merge sort (but not its crash, see module docs).
 pub fn pacsort_files_sort<T, F>(items: &mut Vec<T>, path: F)
 where
     F: Fn(&T) -> &Path,
 {
-    if items.iter().any(|it| pacsort_crashes(path(it))) {
-        items.clear();
-        return;
-    }
     let order = {
         let inputs: Vec<Input> = items
             .iter()
             .map(|it| Input::new(path(it).as_os_str().as_bytes()))
             .collect();
-        let mut idx: Vec<usize> = (0..items.len()).collect();
-        let mut tmp = vec![0usize; idx.len()];
-        msort(&mut idx, &mut tmp, &|x, y| {
-            compare_inputs(&inputs[x], &inputs[y])
-        });
-        idx
+        glibc_sort_order(inputs.len(), &|x, y| compare_inputs(&inputs[x], &inputs[y]))
     };
+    apply_order(items, order);
+}
+
+/// Sort `items` with glibc's `qsort` merge sort and an arbitrary comparator
+/// (which need not be a total order; it never panics).
+pub fn glibc_sort_by<T, C>(items: &mut Vec<T>, cmp: C)
+where
+    C: Fn(&T, &T) -> Ordering,
+{
+    let order = glibc_sort_order(items.len(), &|x, y| cmp(&items[x], &items[y]));
+    apply_order(items, order);
+}
+
+fn glibc_sort_order(n: usize, cmp: &dyn Fn(usize, usize) -> Ordering) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..n).collect();
+    let mut tmp = vec![0usize; n];
+    msort(&mut idx, &mut tmp, cmp);
+    idx
+}
+
+fn apply_order<T>(items: &mut Vec<T>, order: Vec<usize>) {
     let mut slots: Vec<Option<T>> = items.drain(..).map(Some).collect();
     items.extend(
         order
@@ -602,13 +619,15 @@ mod tests {
                     for lines in c {
                         let (want, code) = pacsort(&lines);
                         let got = ours(&lines);
+                        let predicted = lines.iter().any(|l| pacsort_crashes(Path::new(l)));
                         if code != Some(0) {
                             crashes += 1;
-                            assert!(
-                                want.is_empty() && got.is_empty(),
-                                "crash mismatch: {lines:?}"
-                            );
+                            assert!(predicted && want.is_empty(), "crash mismatch: {lines:?}");
+                            // DIVERGENCE: we sort normally instead of crashing.
+                            assert_eq!(got.len(), lines.len());
+                            continue;
                         }
+                        assert!(!predicted, "predicted crash did not happen: {lines:?}");
                         assert_eq!(got, want, "order mismatch for input {lines:?}");
                     }
                     crashes

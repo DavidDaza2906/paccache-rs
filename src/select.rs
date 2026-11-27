@@ -50,7 +50,12 @@ pub fn candidates(entries: Vec<Entry>, f: &Filter) -> Vec<Entry> {
     candidates_with(entries, f, &scanarch, &HashParams::from_env())
 }
 
-fn candidates_with(entries: Vec<Entry>, f: &Filter, scanarch: &[u8], hp: &HashParams) -> Vec<Entry> {
+fn candidates_with(
+    entries: Vec<Entry>,
+    f: &Filter,
+    scanarch: &[u8],
+    hp: &HashParams,
+) -> Vec<Entry> {
     let min_atime = f.min_atime.filter(|&t| t != 0).map(|t| t as f64);
     let min_mtime = f.min_mtime.filter(|&t| t != 0).map(|t| t as f64);
     let arch_filter = ArchFilter::new(scanarch);
@@ -239,11 +244,15 @@ fn awk_unescape(s: &[u8]) -> (Vec<u8>, Vec<String>) {
                     i += 1;
                 }
                 if i == start {
-                    warnings.push(format!("no hex digits in `\\{}' escape sequence", e as char));
+                    warnings.push(format!(
+                        "no hex digits in `\\{}' escape sequence",
+                        e as char
+                    ));
                     out.push(e);
                     continue;
                 }
-                let v = u32::from_str_radix(std::str::from_utf8(&s[start..i]).unwrap(), 16).unwrap();
+                let v =
+                    u32::from_str_radix(std::str::from_utf8(&s[start..i]).unwrap(), 16).unwrap();
                 if e == b'x' {
                     out.push(v as u8);
                 } else if let Some(ch) = char::from_u32(v) {
@@ -285,7 +294,10 @@ struct HashParams {
 
 impl Default for HashParams {
     fn default() -> Self {
-        HashParams { func: HashFn::Awk, chain_max: 10 }
+        HashParams {
+            func: HashFn::Awk,
+            chain_max: 10,
+        }
     }
 }
 
@@ -305,7 +317,10 @@ impl HashParams {
                 }
             }
         }
-        match std::env::var_os("AWK_HASH").as_deref().map(|v| v.as_encoded_bytes()) {
+        match std::env::var_os("AWK_HASH")
+            .as_deref()
+            .map(|v| v.as_encoded_bytes())
+        {
             Some(b"gst") => hp.func = HashFn::Gst,
             Some(b"fnv1a") => hp.func = HashFn::Fnv1a,
             _ => {}
@@ -357,9 +372,8 @@ fn gawk_hash_code(s: &[u8], func: HashFn) -> u64 {
 }
 
 const GAWK_SIZES: [u64; 21] = [
-    13, 127, 1021, 8191, 16381, 32749, 65497, 131101, 262147, 524309, 1048583, 2097169,
-    4194319, 8388617, 16777259, 33554467, 67108879, 134217757, 268435459, 536870923,
-    1073741827,
+    13, 127, 1021, 8191, 16381, 32749, 65497, 131101, 262147, 524309, 1048583, 2097169, 4194319,
+    8388617, 16777259, 33554467, 67108879, 134217757, 268435459, 536870923, 1073741827,
 ];
 
 /// Order in which gawk's `for (k in arr)` visits `keys`, inserted in the given order
@@ -392,7 +406,10 @@ fn gawk_for_in_order(keys: &[Vec<u8>], hp: &HashParams) -> Vec<usize> {
         }
         buckets[(code % size) as usize].push(idx);
     }
-    buckets.into_iter().flat_map(|c| c.into_iter().rev()).collect()
+    buckets
+        .into_iter()
+        .flat_map(|c| c.into_iter().rev())
+        .collect()
 }
 
 #[cfg(test)]
@@ -404,16 +421,26 @@ mod tests {
 
     fn ent(path: &str, name: &str, arch: &str) -> Entry {
         Entry {
-            file: PkgFile { path: PathBuf::from(path), name: name.into(), arch: arch.into() },
+            file: PkgFile {
+                path: PathBuf::from(path),
+                name: name.into(),
+                arch: arch.into(),
+            },
             atime: 0.0,
             mtime: 0.0,
         }
     }
     fn tent(path: &str, name: &str, arch: &str, atime: f64, mtime: f64) -> Entry {
-        Entry { atime, mtime, ..ent(path, name, arch) }
+        Entry {
+            atime,
+            mtime,
+            ..ent(path, name, arch)
+        }
     }
     fn paths(v: &[Entry]) -> Vec<String> {
-        v.iter().map(|e| e.file.path.to_string_lossy().into_owned()).collect()
+        v.iter()
+            .map(|e| e.file.path.to_string_lossy().into_owned())
+            .collect()
     }
     fn sorted(mut v: Vec<String>) -> Vec<String> {
         v.sort();
@@ -441,77 +468,176 @@ mod tests {
 
     #[test]
     fn keep_per_name_arch() {
-        let f = Filter { keep: 1, ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            ..Default::default()
+        };
         assert_eq!(
             sorted(run(foo_bar(), &f)),
-            vec!["/c/bar-1-1-any", "/c/foo-1-1-x86_64", "/c/foo-2-1-x86_64", "/c/foo-3-1-x86_64"]
+            vec![
+                "/c/bar-1-1-any",
+                "/c/foo-1-1-x86_64",
+                "/c/foo-2-1-x86_64",
+                "/c/foo-3-1-x86_64"
+            ]
         );
-        let f = Filter { keep: 3, ..Default::default() };
+        let f = Filter {
+            keep: 3,
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f), vec!["/c/foo-1-1-x86_64"]);
-        let f = Filter { keep: 0, ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f).len(), 7);
-        let f = Filter { keep: 100, ..Default::default() };
+        let f = Filter {
+            keep: 100,
+            ..Default::default()
+        };
         assert!(run(foo_bar(), &f).is_empty());
         assert!(run(Vec::new(), &Filter::default()).is_empty());
     }
 
     #[test]
     fn group_files_keep_input_order() {
-        let f = Filter { keep: 1, ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            ..Default::default()
+        };
         let out = run(foo_bar(), &f);
         let foo: Vec<_> = out.iter().filter(|p| p.contains("foo")).cloned().collect();
-        assert_eq!(foo, vec!["/c/foo-1-1-x86_64", "/c/foo-2-1-x86_64", "/c/foo-3-1-x86_64"]);
+        assert_eq!(
+            foo,
+            vec![
+                "/c/foo-1-1-x86_64",
+                "/c/foo-2-1-x86_64",
+                "/c/foo-3-1-x86_64"
+            ]
+        );
     }
 
     #[test]
     fn arch_filter() {
-        let f = Filter { keep: 0, arch: Some("i686".into()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some("i686".into()),
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f), vec!["/c/foo-1-1-i686"]);
-        let f = Filter { keep: 0, arch: Some(String::new()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some(String::new()),
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f).len(), 7);
-        let f = Filter { keep: 0, arch: Some("nope".into()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some("nope".into()),
+            ..Default::default()
+        };
         assert!(run(foo_bar(), &f).is_empty());
         // awk quirks: numeric zero disables, numeric compare
         for zero in ["0", "00", " 0", "0.0", ".0", "0e5", "-0", "+0"] {
-            let f = Filter { keep: 0, arch: Some(zero.into()), ..Default::default() };
+            let f = Filter {
+                keep: 0,
+                arch: Some(zero.into()),
+                ..Default::default()
+            };
             assert_eq!(run(foo_bar(), &f).len(), 7, "{zero:?}");
         }
-        let e = vec![ent("/a", "a", "01"), ent("/b", "b", "1e0"), ent("/c", "c", "1"), ent("/d", "d", "x")];
-        let f = Filter { keep: 0, arch: Some("1".into()), ..Default::default() };
+        let e = vec![
+            ent("/a", "a", "01"),
+            ent("/b", "b", "1e0"),
+            ent("/c", "c", "1"),
+            ent("/d", "d", "x"),
+        ];
+        let f = Filter {
+            keep: 0,
+            arch: Some("1".into()),
+            ..Default::default()
+        };
         assert_eq!(sorted(run(e.clone(), &f)), vec!["/a", "/b", "/c"]);
-        let f = Filter { keep: 0, arch: Some("0x0".into()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some("0x0".into()),
+            ..Default::default()
+        };
         assert!(run(e, &f).is_empty());
         // escape processing of -v
         let e = vec![ent("/t", "t", "a\tb"), ent("/u", "u", "a_b")];
-        let f = Filter { keep: 0, arch: Some("a\\tb".into()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some("a\\tb".into()),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/t"]);
-        let f = Filter { keep: 0, arch: Some("a\\_b".into()), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            arch: Some("a\\_b".into()),
+            ..Default::default()
+        };
         assert_eq!(run(e, &f), vec!["/u"]);
     }
 
     #[test]
     fn white_and_blacklist() {
-        let f = Filter { keep: 0, whitelist: set(&["bar"]), ..Default::default() };
-        assert_eq!(sorted(run(foo_bar(), &f)), vec!["/c/bar-1-1-any", "/c/bar-2-1-any"]);
-        let f = Filter { keep: 0, blacklist: set(&["bar"]), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            whitelist: set(&["bar"]),
+            ..Default::default()
+        };
+        assert_eq!(
+            sorted(run(foo_bar(), &f)),
+            vec!["/c/bar-1-1-any", "/c/bar-2-1-any"]
+        );
+        let f = Filter {
+            keep: 0,
+            blacklist: set(&["bar"]),
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f).len(), 5);
-        let f = Filter { keep: 0, whitelist: set(&["bar", "foo"]), blacklist: set(&["foo"]), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            whitelist: set(&["bar", "foo"]),
+            blacklist: set(&["foo"]),
+            ..Default::default()
+        };
         assert_eq!(run(foo_bar(), &f).len(), 2);
         // blacklisting shifts the kept set: entries are filtered before grouping
-        let f = Filter { keep: 1, whitelist: set(&["zzz"]), ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            whitelist: set(&["zzz"]),
+            ..Default::default()
+        };
         assert!(run(foo_bar(), &f).is_empty());
     }
 
     #[test]
     fn empty_name_quirk() {
-        let e = vec![ent("/x1", "", "any"), ent("/x2", "", "any"), ent("/y", "y", "any")];
-        let f = Filter { keep: 0, ..Default::default() };
+        let e = vec![
+            ent("/x1", "", "any"),
+            ent("/x2", "", "any"),
+            ent("/y", "y", "any"),
+        ];
+        let f = Filter {
+            keep: 0,
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f).len(), 3);
         // any blacklist also drops the empty name
-        let f = Filter { keep: 0, blacklist: set(&["nomatch"]), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            blacklist: set(&["nomatch"]),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/y"]);
         // whitelist containing "" lets it through
-        let f = Filter { keep: 0, whitelist: set(&[""]), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            whitelist: set(&[""]),
+            ..Default::default()
+        };
         assert_eq!(sorted(run(e, &f)), vec!["/x1", "/x2"]);
     }
 
@@ -525,30 +651,86 @@ mod tests {
             tent("/p5", "p", "any", 200.0, 200.0),
             tent("/p6", "p", "any", 1.0, 1.0),
         ];
-        let f = Filter { keep: 1, min_atime: Some(200), ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            min_atime: Some(200),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/p1", "/p3", "/p4"]);
-        let f = Filter { keep: 1, min_mtime: Some(200), ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            min_mtime: Some(200),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/p1", "/p2", "/p4"]);
-        let f = Filter { keep: 1, min_atime: Some(200), min_mtime: Some(200), ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            min_atime: Some(200),
+            min_mtime: Some(200),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/p1", "/p4"]);
         // keep is applied first: the newest (last) entry is never considered
-        let f = Filter { keep: 0, min_atime: Some(200), ..Default::default() };
+        let f = Filter {
+            keep: 0,
+            min_atime: Some(200),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f), vec!["/p1", "/p3", "/p4", "/p6"]);
         // 0 means unset
-        let f = Filter { keep: 1, min_atime: Some(0), min_mtime: Some(0), ..Default::default() };
+        let f = Filter {
+            keep: 1,
+            min_atime: Some(0),
+            min_mtime: Some(0),
+            ..Default::default()
+        };
         assert_eq!(run(e.clone(), &f).len(), 5);
         // negative minimum works (pre-epoch dates)
-        let e2 = vec![tent("/n1", "n", "any", -10.5, 0.0), tent("/n2", "n", "any", -1.0, 0.0), tent("/n3", "n", "any", 0.0, 0.0)];
-        let f = Filter { keep: 0, min_atime: Some(-1), ..Default::default() };
+        let e2 = vec![
+            tent("/n1", "n", "any", -10.5, 0.0),
+            tent("/n2", "n", "any", -1.0, 0.0),
+            tent("/n3", "n", "any", 0.0, 0.0),
+        ];
+        let f = Filter {
+            keep: 0,
+            min_atime: Some(-1),
+            ..Default::default()
+        };
         assert_eq!(run(e2, &f), vec!["/n1"]);
     }
 
     #[test]
     fn strnum() {
-        for (s, v) in [("0", 0.0), (" 1 ", 1.0), ("1.", 1.0), (".5", 0.5), ("1e3", 1000.0), ("+2", 2.0), ("-0", 0.0), ("1e", 1.0)] {
-            assert_eq!(awk_strnum(s.as_bytes()), if s == "1e" { None } else { Some(v) }, "{s:?}");
+        for (s, v) in [
+            ("0", 0.0),
+            (" 1 ", 1.0),
+            ("1.", 1.0),
+            (".5", 0.5),
+            ("1e3", 1000.0),
+            ("+2", 2.0),
+            ("-0", 0.0),
+            ("1e", 1.0),
+        ] {
+            assert_eq!(
+                awk_strnum(s.as_bytes()),
+                if s == "1e" { None } else { Some(v) },
+                "{s:?}"
+            );
         }
-        for s in ["", " ", "x", "inf", "nan", "0x1", "1_", "+infinity", ".", "+", "e5", "1 2"] {
+        for s in [
+            "",
+            " ",
+            "x",
+            "inf",
+            "nan",
+            "0x1",
+            "1_",
+            "+infinity",
+            ".",
+            "+",
+            "e5",
+            "1 2",
+        ] {
             assert_eq!(awk_strnum(s.as_bytes()), None, "{s:?}");
         }
         assert_eq!(awk_strnum(b"-inf"), Some(f64::NEG_INFINITY));
@@ -575,7 +757,10 @@ mod tests {
     }
 
     fn gawk_available() -> bool {
-        Command::new("gawk").arg("BEGIN{}").status().is_ok_and(|s| s.success())
+        Command::new("gawk")
+            .arg("BEGIN{}")
+            .status()
+            .is_ok_and(|s| s.success())
     }
 
     /// Compare escape processing and warnings with real gawk.
@@ -585,9 +770,24 @@ mod tests {
             eprintln!("gawk not found, skipping");
             return;
         }
-        for s in [r#"a\_b\tc\101\x41g\\h\/\"\q"#, r"x\", r"\x", r"\x414243", r"\0101\8", r"\u00e9\u41", r"\uD800", r"a\
-b", r"\z\z\y"] {
-            let o = Command::new("gawk").arg("-v").arg(format!("s={s}")).arg("BEGIN{printf \"%s\", s}").output().unwrap();
+        for s in [
+            r#"a\_b\tc\101\x41g\\h\/\"\q"#,
+            r"x\",
+            r"\x",
+            r"\x414243",
+            r"\0101\8",
+            r"\u00e9\u41",
+            r"\uD800",
+            r"a\
+b",
+            r"\z\z\y",
+        ] {
+            let o = Command::new("gawk")
+                .arg("-v")
+                .arg(format!("s={s}"))
+                .arg("BEGIN{printf \"%s\", s}")
+                .output()
+                .unwrap();
             let (v, w) = awk_unescape(s.as_bytes());
             assert_eq!(o.stdout, v, "{s:?}");
             let expected: String = w.iter().map(|w| format!("gawk: warning: {w}\n")).collect();
@@ -601,19 +801,32 @@ b", r"\z\z\y"] {
         if !gawk_available() {
             return;
         }
-        let vals = ["0", "00", " 0", "0 ", "+0", "-0", "0.0", ".0", "0e5", "0x0", "1", "01", "1e0", " 1", "+inf",
-            "inf", "-nan", "nan", "1.", "0x1", "1_", "", "a", "x86_64", "INF", "+INF", "1e", "-1", "1e-0", "\t2\n"];
+        let vals = [
+            "0", "00", " 0", "0 ", "+0", "-0", "0.0", ".0", "0e5", "0x0", "1", "01", "1e0", " 1",
+            "+inf", "inf", "-nan", "nan", "1.", "0x1", "1_", "", "a", "x86_64", "INF", "+INF",
+            "1e", "-1", "1e-0", "\t2\n",
+        ];
         let mut script = String::from("BEGIN{n=split(ARGV[1], v, \"|\"); for(i=1;i<=n;i++){s=v[i]; for(j=1;j<=n;j++){split(\"p\" SUBSEP v[j], idx, SUBSEP); printf \"%s\", ((!s || s == idx[2]) ? \"Y\" : \".\")} print \"\"}}");
         script.push('\n');
-        let o = Command::new("gawk").arg(&script).arg(vals.join("|")).output().unwrap();
+        let o = Command::new("gawk")
+            .arg(&script)
+            .arg(vals.join("|"))
+            .output()
+            .unwrap();
         let got: Vec<String> = vals
             .iter()
             .map(|s| {
                 let af = ArchFilter::new(s.as_bytes());
-                vals.iter().map(|a| if af.matches(a.as_bytes()) { 'Y' } else { '.' }).collect()
+                vals.iter()
+                    .map(|a| if af.matches(a.as_bytes()) { 'Y' } else { '.' })
+                    .collect()
             })
             .collect();
-        let exp: Vec<String> = String::from_utf8(o.stdout).unwrap().lines().map(String::from).collect();
+        let exp: Vec<String> = String::from_utf8(o.stdout)
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .collect();
         assert_eq!(got, exp);
     }
 
@@ -624,7 +837,9 @@ b", r"\z\z\y"] {
         if !gawk_available() {
             return;
         }
-        let Ok(script) = std::fs::read_to_string("/usr/bin/paccache") else { return };
+        let Ok(script) = std::fs::read_to_string("/usr/bin/paccache") else {
+            return;
+        };
         let start = script.find("\tawk -v keep").expect("pkgfilter awk program");
         let body_start = script[start..].find('\'').unwrap() + start + 1;
         let body_end = script[body_start..].find("}' \"${@:5}\"").unwrap() + body_start + 1;
@@ -642,9 +857,26 @@ b", r"\z\z\y"] {
                 entries.push(ent(&p, &name, arch));
             }
         }
-        for (hash, chain) in [(None, None), (Some("gst"), None), (Some("fnv1a"), Some("2")), (None, Some("1"))] {
+        for (hash, chain) in [
+            (None, None),
+            (Some("gst"), None),
+            (Some("fnv1a"), Some("2")),
+            (None, Some("1")),
+        ] {
             let mut cmd = Command::new("gawk");
-            cmd.args(["-v", "keep=1", "-v", "scanarch=", "-v", "min_atime=0", "-v", "min_mtime=0", prog, "0", "0"]);
+            cmd.args([
+                "-v",
+                "keep=1",
+                "-v",
+                "scanarch=",
+                "-v",
+                "min_atime=0",
+                "-v",
+                "min_mtime=0",
+                prog,
+                "0",
+                "0",
+            ]);
             cmd.env_remove("AWK_HASH").env_remove("STR_CHAIN_MAX");
             if let Some(h) = hash {
                 cmd.env("AWK_HASH", h);
@@ -652,15 +884,22 @@ b", r"\z\z\y"] {
             if let Some(c) = chain {
                 cmd.env("STR_CHAIN_MAX", c);
             }
-            cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
+            cmd.stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped());
             let mut child = cmd.spawn().unwrap();
             {
                 use std::io::Write;
                 let mut stdin = child.stdin.take().unwrap();
-                stdin.write_all((lines.join("\n") + "\n").as_bytes()).unwrap();
+                stdin
+                    .write_all((lines.join("\n") + "\n").as_bytes())
+                    .unwrap();
             }
             let o = child.wait_with_output().unwrap();
-            let exp: Vec<String> = String::from_utf8(o.stdout).unwrap().lines().map(String::from).collect();
+            let exp: Vec<String> = String::from_utf8(o.stdout)
+                .unwrap()
+                .lines()
+                .map(String::from)
+                .collect();
             let hp = HashParams {
                 func: match hash {
                     Some("gst") => HashFn::Gst,
@@ -669,7 +908,10 @@ b", r"\z\z\y"] {
                 },
                 chain_max: chain.map_or(10, |c| c.parse().unwrap()),
             };
-            let f = Filter { keep: 1, ..Default::default() };
+            let f = Filter {
+                keep: 1,
+                ..Default::default()
+            };
             let got = paths(&candidates_with(entries.clone(), &f, b"", &hp));
             assert_eq!(got.len(), 4000);
             assert_eq!(got, exp, "hash {hash:?} chain {chain:?}");

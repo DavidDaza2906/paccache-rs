@@ -75,8 +75,9 @@ pub struct CliError {
     pub message: String,
     pub is_die: bool,
     pub code: i32,
-    /// The `die` happened after the script's `colorize` step (operation check),
-    /// so it is colored when `Out::color`. Dies inside the option loop are not.
+    /// The `die` happened after the script's `colorize` step (operation check)
+    /// and `--nocolor` was not given, so it is colored when stderr is a tty.
+    /// Dies inside the option loop are never colored.
     pub colorable: bool,
 }
 
@@ -98,8 +99,8 @@ impl CliError {
         }
     }
 
-    /// Print the error on stderr exactly as the script would. `color` is the
-    /// would-be `Out::color` (stderr is a tty and no `--nocolor`).
+    /// Print the error on stderr exactly as the script would. `color` is whether
+    /// stderr is a tty (`--nocolor` is already folded into `colorable`).
     pub fn emit(&self, color: bool) {
         let mut err = std::io::stderr().lock();
         let _ = self.emit_to(&mut err, color);
@@ -546,11 +547,11 @@ pub fn parse(args: &[OsString], env: &mut dyn Env) -> Result<Parsed, CliError> {
     }
 
     let op = match (dryrun as u8) + (delete as u8) + (mv as u8) {
-        0 => return Err(CliError::die(MSG_NOOP, true)),
+        0 => return Err(CliError::die(MSG_NOOP, !nocolor)),
         1 if dryrun => Op::DryRun,
         1 if delete => Op::Remove,
         1 => Op::Move(PathBuf::from(OsString::from_vec(movedir))),
-        _ => return Err(CliError::die(MSG_MANYOP, true)),
+        _ => return Err(CliError::die(MSG_MANYOP, !nocolor)),
     };
 
     Ok(Parsed::Run(Config {

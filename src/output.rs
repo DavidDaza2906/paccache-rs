@@ -242,7 +242,7 @@ pub fn summarize_to(
             if verbose > 0 {
                 write_msg(w, pal, "Candidate packages:")?;
                 let mut sorted: Vec<&PathBuf> = pkgs.iter().collect();
-                sorted.sort_by(|a, b| cmp(a, b));
+                crate::pkgname::glibc_sort_by(&mut sorted, |a, b| cmp(a, b));
                 let delim: &[u8] = if null { b"\0" } else { b"\n" };
                 let (mut seen, mut seenarch, mut name, mut arch): (
                     Vec<u8>,
