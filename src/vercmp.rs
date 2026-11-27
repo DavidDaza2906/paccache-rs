@@ -158,7 +158,7 @@ fn rpmvercmp(a: &[u8], b: &[u8]) -> Ordering {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::Write;
     use std::process::{Command, Stdio};
