@@ -519,24 +519,50 @@ mod tests {
         assert_eq!(v, b"//");
     }
 
+    /// Listing a directory updates its atime on mounts without relatime/noatime
+    /// (e.g. CI containers), so the two walks can legitimately see different
+    /// directory atimes. Mask the atime column of directories before comparing.
+    fn mask_dir_atime(text: &[u8]) -> String {
+        String::from_utf8_lossy(text)
+            .lines()
+            .map(|l| {
+                let mut f = l.splitn(3, ' ');
+                let (a, m, p) = (
+                    f.next().unwrap_or(""),
+                    f.next().unwrap_or(""),
+                    f.next().unwrap_or(""),
+                );
+                let a = if Path::new(p).is_dir() {
+                    "<dir-atime>"
+                } else {
+                    a
+                };
+                format!("{a} {m} {p}\n")
+            })
+            .collect()
+    }
+
     #[test]
     fn find_matches_real_find() {
         let root = tmpdir("find");
         weird_tree(&root);
         let (out, err) = real_find(&root);
-        assert_eq!(
-            String::from_utf8_lossy(&our_find_text(&root)),
-            String::from_utf8_lossy(&out)
-        );
+        assert_eq!(mask_dir_atime(&our_find_text(&root)), mask_dir_atime(&out));
         assert_eq!(err, "");
         // the start dir itself may match; a symlinked start dir is not descended
         let named = root.join("cache.pkg.tar.d");
         fs::create_dir(&named).unwrap();
         touch(&named.join("k-1-1-any.pkg.tar.zst"));
-        assert_eq!(our_find_text(&named), real_find(&named).0);
+        assert_eq!(
+            mask_dir_atime(&our_find_text(&named)),
+            mask_dir_atime(&real_find(&named).0)
+        );
         let lnk = root.join("lnk.pkg.tar.d");
         symlink(&named, &lnk).unwrap();
-        assert_eq!(our_find_text(&lnk), real_find(&lnk).0);
+        assert_eq!(
+            mask_dir_atime(&our_find_text(&lnk)),
+            mask_dir_atime(&real_find(&lnk).0)
+        );
         assert_eq!(list_find(&lnk).len(), 1);
         let pruned = root.join("pruned.pkg.tar.sig");
         assert_eq!(our_find_text(&pruned), real_find(&pruned).0);

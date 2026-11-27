@@ -11,7 +11,6 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-
 /// 2021-01-01T00:00:00Z: lower bound of the "old" timestamps.
 pub const T_OLD_LO: i64 = 1_609_459_200;
 /// 2023-01-01T00:00:00Z: upper bound of the "old" timestamps.
