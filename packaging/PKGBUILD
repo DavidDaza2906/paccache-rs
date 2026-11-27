@@ -16,7 +16,7 @@ makedepends=('cargo')
 checkdepends=('pacman-contrib' 'gawk')
 optdepends=('sudo: remove or move packages in a root-owned cache as a normal user')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('0d631db30aaf97e0fb2a534ffc50b14100b6a5810097220f1362f948e92d979f')
 
 prepare() {
   cd "$pkgname-$pkgver"
