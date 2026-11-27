@@ -4,7 +4,7 @@
 # package does not conflict with pacman-contrib (which provides /usr/bin/paccache).
 
 pkgname=paccache-rs
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc='Drop-in Rust rewrite of paccache, the pacman cache cleaner from pacman-contrib'
 arch=('x86_64' 'aarch64')
@@ -16,7 +16,7 @@ makedepends=('cargo')
 checkdepends=('pacman-contrib' 'gawk')
 optdepends=('sudo: remove or move packages in a root-owned cache as a normal user')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('0d631db30aaf97e0fb2a534ffc50b14100b6a5810097220f1362f948e92d979f')
+sha256sums=('SKIP')
 
 prepare() {
   cd "$pkgname-$pkgver"

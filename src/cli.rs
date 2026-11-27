@@ -1147,7 +1147,11 @@ mod tests {
         );
         // parseopts errors win over everything
         assert!(run_env(&["-h", "--bogus"], &mut e).is_err());
-        assert!(VERSION.starts_with("paccache-rs 0.1.0 (compatible with paccache 1.13.1)\n"));
+        assert!(VERSION.starts_with(concat!(
+            "paccache-rs ",
+            env!("CARGO_PKG_VERSION"),
+            " (compatible with paccache 1.13.1)\n"
+        )));
     }
 
     #[test]
