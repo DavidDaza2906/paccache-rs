@@ -17,6 +17,7 @@ name = "paccache_rs"
 path = "src/lib.rs"
 
 [dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 
