@@ -11,7 +11,6 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use filetime::{set_file_times, FileTime};
 
 /// 2021-01-01T00:00:00Z: lower bound of the "old" timestamps.
 pub const T_OLD_LO: i64 = 1_609_459_200;
@@ -61,12 +60,12 @@ impl CacheSpec {
                 let byte = (f.rel.len() % 251) as u8;
                 io::Write::write_all(&mut &file, &vec![byte; f.size as usize])?;
             }
-            drop(file);
-            set_file_times(
-                &path,
-                FileTime::from_unix_time(f.atime, 0),
-                FileTime::from_unix_time(f.mtime, 0),
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_accessed(unix_time(f.atime))
+                    .set_modified(unix_time(f.mtime)),
             )?;
+            drop(file);
         }
         Ok(())
     }
@@ -376,4 +375,14 @@ pub fn ages() -> CacheSpec {
         c.push_exact(format!("other-{v}-any.pkg.tar.xz"), 2000, *a, *m);
     }
     c
+}
+
+/// Seconds since the epoch (possibly negative) as a `SystemTime`.
+fn unix_time(secs: i64) -> std::time::SystemTime {
+    let d = std::time::Duration::from_secs(secs.unsigned_abs());
+    if secs >= 0 {
+        std::time::UNIX_EPOCH + d
+    } else {
+        std::time::UNIX_EPOCH - d
+    }
 }

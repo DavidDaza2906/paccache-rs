@@ -23,7 +23,6 @@ path = "src/lib.rs"
 libc = "0.2"
 
 [dev-dependencies]
-filetime = "0.2.30"
 tempfile = "3.27.0"
 
 [profile.release]
